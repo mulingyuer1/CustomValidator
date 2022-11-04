@@ -17,7 +17,7 @@
       const inputDom = document.querySelector(".my-input");
       const validator = new $Validator();
       validator.add(inputDom, [{ required: true, message: "必填", trigger: ["blur", "input"] }], function (error, dom) {
-        if ((error, dom)) {
+        if (error) {
           console.log("校验失败", dom);
         } else {
           console.log("校验成功", dom);
