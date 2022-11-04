@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CustomValidator</title>
+    <script src="./validator.js"></script>
+  </head>
+  <body>
+    <input type="text" class="my-input" />
+    <button type="button" class="my-button">提交</button>
+
+    <script>
+      "use strict";
+
+      const inputDom = document.querySelector(".my-input");
+      const validator = new $Validator();
+      validator.add(inputDom, [{ required: true, message: "必填", trigger: ["blur", "input"] }], function (error, dom) {
+        if ((error, dom)) {
+          console.log("校验失败", dom);
+        } else {
+          console.log("校验成功", dom);
+        }
+      });
+
+      const buttonDom = document.querySelector(".my-button");
+      buttonDom.addEventListener("click", function () {
+        validator
+          .validate()
+          .then(function () {
+            console.log("校验成功");
+          })
+          .catch(function (error) {
+            console.log("校验失败", error);
+          });
+      });
+    </script>
+  </body>
+</html>
