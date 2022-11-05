@@ -1,10 +1,10 @@
 /*
  * @Author: mulingyuer
  * @Date: 2022-11-05 01:27:56
- * @LastEditTime: 2022-11-05 04:12:16
+ * @LastEditTime: 2022-11-05 19:18:51
  * @LastEditors: mulingyuer
  * @Description: 策略模式表单校验
- * @FilePath: \CustomValidator\validator.js
+ * @FilePath: \otp2\js\validator.js
  * 怎么可能会有bug！！！
  */
 "use strict";
@@ -187,6 +187,8 @@
   /** Validator类 */
   function Validator() {
     this.validateList = []; //校验列表
+    this.EventMap = []; //事件列表
+    this.supportEvent = ["input", "blur", "change", "focus"];
   }
   /**  */
   /**
@@ -202,47 +204,103 @@
       throw new Error("rules必须是数组");
     }
 
-    const self = this;
+    const manualList = []; //手动校验列表
     for (let i = 0, len = rules.length; i < len; i++) {
       const rule = rules[i];
       const { trigger } = rule;
-      const strategyList = self.getStrategyList(rule);
+      const strategyList = this.getStrategyList(rule);
 
-      if (strategyList.length <= 0) break;
+      if (strategyList.length <= 0) continue; //跳过本次
 
       if (Array.isArray(trigger)) {
         for (let j = 0, jLen = trigger.length; j < jLen; j++) {
           for (let k = 0, kLen = strategyList.length; k < kLen; k++) {
             const strategy = strategyList[k].bind(dom, rule, callback);
-            self.bindEvent(dom, trigger[j], strategy);
+            this.bindEvent(dom, trigger[j], strategy);
             //校验列表也得存，用于手动校验
-            self.validateList.push(strategy);
+            manualList.push(strategy);
           }
         }
       } else {
         for (let k = 0, kLen = strategyList.length; k < kLen; k++) {
           const strategy = strategyList[k].bind(dom, rule, callback);
-          self.bindEvent(dom, trigger, strategy);
+          this.bindEvent(dom, trigger, strategy);
           //校验列表也得存，用于手动校验
-          self.validateList.push(strategy);
+          manualList.push(strategy);
         }
       }
     }
+
+    //存储到最终校验列表
+    this.validateList.push(manualList);
   };
   /** 绑定事件 */
   Validator.prototype.bindEvent = function (dom, eventType, fn) {
-    switch (eventType) {
-      case "blur": //失去焦点
-        dom.addEventListener("blur", fn);
+    if (!this.isSupportEvent(eventType)) return;
+    const eventData = this.getEvent(dom);
+    const eventList = eventData.events[eventType];
+    let commonValidateFn;
+    if (eventList.length <= 0) {
+      switch (eventType) {
+        case "blur": //失去焦点
+        case "change": //值改变
+        case "input": //输入
+        case "focus": //获取焦点
+          commonValidateFn = this.commonValidate.bind(this, eventList);
+          eventData.commonValidate[eventType] = commonValidateFn;
+          dom.addEventListener([eventType], commonValidateFn);
+          break;
+        default:
+          throw new Error("不支持的事件类型");
+      }
+    }
+    eventList.push(fn);
+  };
+  /** 获取事件对象 */
+  Validator.prototype.getEvent = function (dom) {
+    let index = -1;
+    for (let i = 0, len = this.EventMap.length; i < len; i++) {
+      const item = this.EventMap[i];
+      if (item.el === dom) {
+        index = i;
         break;
-      case "change": //值改变
-        dom.addEventListener("change", fn);
-        break;
-      case "input": //输入
-        dom.addEventListener("input", fn);
-        break;
-      default:
-        throw new Error("不支持的事件类型");
+      }
+    }
+    let eventData;
+    if (index === -1) {
+      eventData = {
+        el: dom,
+        events: {
+          input: [],
+          blur: [],
+          change: [],
+          focus: [],
+        },
+        commonValidate: {
+          input: null,
+          blur: null,
+          change: null,
+          focus: null,
+        },
+      };
+      this.EventMap.push(eventData);
+    } else {
+      eventData = this.EventMap[index];
+    }
+
+    return eventData;
+  };
+  /** 判断是否是支持绑定的事件 */
+  Validator.prototype.isSupportEvent = function (eventType) {
+    const index = this.supportEvent.indexOf(eventType);
+    return index !== -1;
+  };
+  /** 通用的dom校验事件 */
+  Validator.prototype.commonValidate = function (eventList) {
+    for (let i = 0, len = eventList.length; i < len; i++) {
+      const fn = eventList[i];
+      const flag = fn();
+      if (!flag) break;
     }
   };
   /** 通过rule对象获取策略 */
@@ -274,16 +332,44 @@
   Validator.prototype.validate = function () {
     return new Promise(
       function (resolve, reject) {
-        try {
-          for (let i = 0, len = this.validateList.length; i < len; i++) {
-            this.validateList[i](true); //魔法，bind绑定了dom和rule
+        let flag = true; //默认是校验通过
+        for (let i = 0, len = this.validateList.length; i < len; i++) {
+          const validateItem = this.validateList[i];
+          for (let j = 0, jLen = validateItem.length; j < jLen; j++) {
+            try {
+              validateItem[j](true); //魔法，bind绑定了dom和rule
+            } catch (error) {
+              flag = false;
+              break; //跳过本次validateItem校验
+            }
           }
-          return resolve(true);
-        } catch (error) {
-          return reject(error);
         }
+
+        if (flag) {
+          return resolve(true);
+        }
+        return reject(false);
       }.bind(this)
     );
+  };
+  /** 销毁 */
+  Validator.prototype.destroy = function () {
+    this.validateList = []; //清空手动校验列表
+    //清空事件
+    for (let i = 0, len = this.EventMap.length; i < len; i++) {
+      const item = this.EventMap[i];
+      const dom = item.el;
+      const commonValidate = item.commonValidate;
+      const eventKeys = Object.keys(commonValidate);
+      for (let j = 0, jLen = eventKeys.length; j < jLen; j++) {
+        const key = eventKeys[j];
+        const fn = commonValidate[key];
+        if (fn) {
+          dom.removeEventListener(key, fn);
+        }
+      }
+    }
+    this.EventMap = []; //清空事件列表
   };
 
   /** 挂载 */
